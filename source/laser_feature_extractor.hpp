@@ -281,10 +281,10 @@ class Laser_feature
 
         if ( m_lidar_type ) // Livox scans
         {
-
+            // 点特征计算 以及花瓣的划分
             laserCloudScans = m_livox.extract_laser_features( laserCloudIn, laserCloudMsg->header.stamp.toSec() );
 
-            if ( laserCloudScans.size() <= 5 ) // less than 5 scan
+            if ( laserCloudScans.size() <= 5 ) // less than 5 scan (小于5个花瓣)
             {
                 return;
             }
@@ -312,21 +312,27 @@ class Laser_feature
 
                 for ( int i = 0; i < piece_wise; i++ )
                 {
+                    // piece_wise = 3, 把整个点云划分为3份
+
                     int start_scans, end_scans;
 
                     start_scans = int( ( m_laser_scan_number * ( i ) ) / piece_wise );
                     end_scans = int( ( m_laser_scan_number * ( i + 1 ) ) / piece_wise ) - 1;
+                    // 每次选出总花瓣的1/3的花瓣
 
                     int end_idx = laserCloudScans[ end_scans ].size() - 1;
+                    // 以 start_scans 的第一个点作为开始, end_scans 的最后一个点作为终止点
                     piece_wise_start[ i ] = ( ( float ) m_livox.find_pt_info( laserCloudScans[ start_scans ].points[ 0 ] )->idx ) / m_livox.m_pts_info_vec.size();
                     piece_wise_end[ i ] = ( ( float ) m_livox.find_pt_info( laserCloudScans[ end_scans ].points[ end_idx ] )->idx ) / m_livox.m_pts_info_vec.size();
                 }
 
                 for ( int i = 0; i < piece_wise; i++ )
                 {
+                    // 为蛤要分成3份发 ??
                   pcl::PointCloud<PointType>::Ptr livox_corners( new pcl::PointCloud<PointType>() ),
                         livox_surface( new pcl::PointCloud<PointType>() ),
                         livox_full( new pcl::PointCloud<PointType>() );
+                    // 按照之前的提取结果 将点云整合并以 ros 格式发送出来
                     m_livox.get_features( *livox_corners, *livox_surface, *livox_full, piece_wise_start[ i ], piece_wise_end[ i ] );
                     m_map_pointcloud_corner_vec_vec[current_lidar_index][i] = *livox_corners;
                     m_map_pointcloud_surface_vec_vec[current_lidar_index][i] = *livox_surface;
@@ -388,7 +394,7 @@ class Laser_feature
                     }
                 }
             }
-            return;
+            return;  // 结束livox点云特征提取
         }
         else
         {

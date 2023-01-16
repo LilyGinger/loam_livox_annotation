@@ -198,6 +198,7 @@ class Point_cloud_registration
 
     if ( laserCloudCornerFromMapNum > CORNER_MIN_MAP_NUM && laserCloudSurfFromMapNum > SURFACE_MIN_MAP_NUM && m_current_frame_index > m_mapping_init_accumulate_frames )
     {
+        // 地图点数目较多 且积累的帧数目较多
         m_timer->tic( "Build kdtree" );
 
         *( m_logger_timer->get_ostream() ) << m_timer->toc_string( "Build kdtree" ) << std::endl;
@@ -210,6 +211,7 @@ class Point_cloud_registration
 
         for ( iterCount = 0; iterCount < m_para_icp_max_iterations; iterCount++ )
         {
+            // ICP计算当前匹配结果
             m_point_search_Idx.clear();
             m_point_search_sq_dis.clear();
             corner_avail_num = 0;
@@ -622,14 +624,19 @@ class Point_cloud_registration
   void pointAssociateToMap( PointType const *const pi, PointType *const po,
                             double interpolate_s = 1.0, int if_undistore = 0 )
   {
+      // 新点插入地图
+      // pi输入点坐标
+      // po输出点坐标
       Eigen::Vector3d point_curr( pi->x, pi->y, pi->z );
       Eigen::Vector3d point_w;
       if ( m_if_motion_deblur == 0 || if_undistore == 0 || interpolate_s == 1.0 )
       {
+          // 不进行插值的话 直接将点转换到世界坐标下即可
           point_w = m_q_w_curr * point_curr + m_t_w_curr;
       }
       else
       {
+          // 
           if ( interpolate_s > 1.0 || interpolate_s < 0.0 )
           {
               screen_printf( "Input interpolate_s = %.5f\r\n", interpolate_s );
@@ -637,6 +644,7 @@ class Point_cloud_registration
 
           if ( 1 ) // Using rodrigues for fast compute.
           {
+              // 插值计算当前点在世界坐标系下的坐标
               //https://en.wikipedia.org/wiki/Rodrigues%27_rotation_formula
               Eigen::Vector3d             interpolate_T = m_t_w_incre * ( interpolate_s * BLUR_SCALE );
               double                      interpolate_R_theta = m_interpolatation_theta * interpolate_s;

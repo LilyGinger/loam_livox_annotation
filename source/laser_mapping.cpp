@@ -43,6 +43,7 @@ int main( int argc, char **argv )
     Laser_mapping laser_mapping;
 
     std::thread mapping_process{ &Laser_mapping::process, &laser_mapping };
+    // mapping部分的入口
 
     ros::spin();
     return 0;

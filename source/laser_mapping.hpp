@@ -245,6 +245,7 @@ class Laser_mapping
     ros::Publisher  m_pub_laser_aft_mapped_path, m_pub_laser_aft_loopclosure_path;
     ros::NodeHandle m_ros_node_handle;
     ros::Subscriber m_sub_laser_cloud_corner_last, m_sub_laser_cloud_surf_last, m_sub_laser_odom, m_sub_laser_cloud_full_res;
+    // 订阅feature extractor计算出的角点、平面点
 
     ceres::Solver::Summary m_final_opt_summary;
     //std::list<std::thread* > m_thread_pool;
@@ -753,7 +754,7 @@ class Laser_mapping
         data_pair->add_pc_corner( laserCloudCornerLast2 );
         if ( data_pair->is_completed() )
         {
-            m_queue_avail_data.push( data_pair );
+            m_queue_avail_data.push( data_pair ); // 保存corner point
         }
     }
 
@@ -764,7 +765,7 @@ class Laser_mapping
         data_pair->add_pc_plane( laserCloudSurfLast2 );
         if ( data_pair->is_completed() )
         {
-            m_queue_avail_data.push( data_pair );
+            m_queue_avail_data.push( data_pair ); // 保存surf point
         }
     }
 
@@ -775,7 +776,7 @@ class Laser_mapping
         data_pair->add_pc_full( laserCloudFullRes2 );
         if ( data_pair->is_completed() )
         {
-            m_queue_avail_data.push( data_pair );
+            m_queue_avail_data.push( data_pair );  // 保存整体point
         }
     }
 
@@ -1334,20 +1335,22 @@ class Laser_mapping
 
         float min_t, max_t;
         find_min_max_intensity( current_laser_cloud_full.makeShared(), min_t, max_t );
+        // 读取最大最小 intensity (10us = 1e-5 * idx, 保存的时间)
 
-        double point_cloud_current_timestamp = min_t;
+        double point_cloud_current_timestamp = min_t;  
         if ( point_cloud_current_timestamp > m_lastest_pc_income_time )
         {
             m_lastest_pc_income_time = point_cloud_current_timestamp;
         }
-        point_cloud_current_timestamp = m_lastest_pc_income_time;
+        point_cloud_current_timestamp = m_lastest_pc_income_time;    // 这一段是干神马的
+
         m_time_odom = m_last_time_stamp;
         m_minimum_pt_time_stamp = m_last_time_stamp;
         m_maximum_pt_time_stamp = max_t;
         m_last_time_stamp = max_t;
         Point_cloud_registration pc_reg;
-        init_pointcloud_registration( pc_reg );
-        m_current_frame_index++;
+        init_pointcloud_registration( pc_reg );                      // 初始化一个点云匹配器
+        m_current_frame_index++;     // 当前帧索引
         double time_odom = ros::Time::now().toSec();
         m_mutex_querypointcloud.unlock();
 
@@ -1355,7 +1358,8 @@ class Laser_mapping
 
         m_timer.tic( "Wait sync" );
         while ( !if_matchbuff_and_pc_sync( point_cloud_current_timestamp ) )
-        {
+        { 
+            // 时间情况不对 则sleep继续等待
             std::this_thread::sleep_for( std::chrono::milliseconds( 1 ) );
         }
         *( m_logger_timer.get_ostream() ) << m_timer.toc_string( "Wait sync" ) << std::endl;
@@ -1366,6 +1370,7 @@ class Laser_mapping
 
         if ( m_if_input_downsample_mode )
         {
+            // 若需要降采样  对角点和平面点做降采样
             down_sample_filter_corner.setInputCloud( current_laser_cloud_corner_last.makeShared() );
             down_sample_filter_corner.filter( *laserCloudCornerStack );
             down_sample_filter_surface.setInputCloud( current_laser_cloud_surf_last.makeShared() );
@@ -1373,12 +1378,13 @@ class Laser_mapping
         }
         else
         {
+            // 若不需要  则直接设定点云
             *laserCloudCornerStack = current_laser_cloud_corner_last;
             *laserCloudSurfStack = current_laser_cloud_surf_last;
         }
 
-        int laser_corner_pt_num = laserCloudCornerStack->points.size();
-        int laser_surface_pt_num = laserCloudSurfStack->points.size();
+        int laser_corner_pt_num = laserCloudCornerStack->points.size(); // 角点数目
+        int laser_surface_pt_num = laserCloudSurfStack->points.size();  // 平面点数目
 
         if ( m_if_save_to_pcd_files && PCD_SAVE_RAW )
         {
@@ -1393,18 +1399,19 @@ class Laser_mapping
         int                             reg_res = 0;
 
         m_mutex_buff_for_matching_corner.lock();
-        *laser_cloud_corner_from_map = *m_laser_cloud_corner_from_map_last;
+        *laser_cloud_corner_from_map = *m_laser_cloud_corner_from_map_last;     // 地图角点
         kdtree_corner_from_map = m_kdtree_corner_from_map_last;
         m_mutex_buff_for_matching_surface.unlock();
 
         m_mutex_buff_for_matching_surface.lock();
-        *laser_cloud_surf_from_map = *m_laser_cloud_surf_from_map_last;
+        *laser_cloud_surf_from_map = *m_laser_cloud_surf_from_map_last;         // 地图平面点
         kdtree_surf_from_map = m_kdtree_surf_from_map_last;
         m_mutex_buff_for_matching_corner.unlock();
 
         reg_res = pc_reg.find_out_incremental_transfrom( laser_cloud_corner_from_map, laser_cloud_surf_from_map,
                                                          kdtree_corner_from_map, kdtree_surf_from_map,
                                                          laserCloudCornerStack, laserCloudSurfStack );
+        // 将当前帧的平面点和角点 与地图的平面点和角点进行匹配 输出结果
 
         screen_out << "Input points size = " << laser_corner_pt_num << ", surface size = " << laser_surface_pt_num << endl;
         screen_out << "Input mapping points size = " << laser_cloud_corner_from_map->points.size() << ", surface size = " << laser_cloud_surf_from_map->points.size() << endl;
@@ -1421,12 +1428,14 @@ class Laser_mapping
         pcl::PointCloud<PointType>::Ptr pc_new_feature_surface( new pcl::PointCloud<PointType>() );
         for ( int i = 0; i < laser_corner_pt_num; i++ )
         {
+            //对每个角点进行遍历 将点依据其在一帧点中的顺序进行姿态校准
             pc_reg.pointAssociateToMap( &laserCloudCornerStack->points[ i ], &pointSel, refine_blur( laserCloudCornerStack->points[ i ].intensity, m_minimum_pt_time_stamp, m_maximum_pt_time_stamp ), g_if_undistore );
             pc_new_feature_corners->push_back( pointSel );
         }
 
         for ( int i = 0; i < laser_surface_pt_num; i++ )
         {
+            //对每个平面点进行遍历 将点依据其在一帧点中的顺序进行姿态校准
             pc_reg.pointAssociateToMap( &laserCloudSurfStack->points[ i ], &pointSel, refine_blur( laserCloudSurfStack->points[ i ].intensity, m_minimum_pt_time_stamp, m_maximum_pt_time_stamp ), g_if_undistore );
             pc_new_feature_surface->push_back( pointSel );
         }
@@ -1435,11 +1444,13 @@ class Laser_mapping
         down_sample_filter_corner.filter( *pc_new_feature_corners );
         down_sample_filter_surface.setInputCloud( pc_new_feature_surface );
         down_sample_filter_surface.filter( *pc_new_feature_surface );
+        // 对新到地图点降采样
 
-        double r_diff = m_q_w_curr.angularDistance( m_last_his_add_q ) * 57.3;
-        double t_diff = ( m_t_w_curr - m_last_his_add_t ).norm();
+        double r_diff = m_q_w_curr.angularDistance( m_last_his_add_q ) * 57.3;   // 距离上一帧的角度距离
+        double t_diff = ( m_t_w_curr - m_last_his_add_t ).norm();                // 距离上一帧的位移距离
 
         pc_reg.pointcloudAssociateToMap( current_laser_cloud_full, current_laser_cloud_full, g_if_undistore );
+        // 将full点云, 转入世界坐标系存储
 
         m_mutex_mapping.lock();
 
@@ -1447,6 +1458,7 @@ class Laser_mapping
              ( t_diff > history_add_t_step ) ||
              ( r_diff > history_add_angle_step * 57.3 ) )
         {
+            // 若满足地图点云数目小于设置的最大数目, 或位移大于设置值, 或角度变化大于设定值, 则将当前帧数据插入历史地图
             m_last_his_add_q = m_q_w_curr;
             m_last_his_add_t = m_t_w_curr;
 
@@ -1456,15 +1468,19 @@ class Laser_mapping
             m_laser_cloud_full_history.push_back( current_laser_cloud_full );
             m_his_reg_error.push_back( pc_reg.m_inlier_threshold );
             m_mutex_dump_full_history.unlock();
+            // 将所有不同类型的点 都加入历史点云集合
         }
         else
         {
             screen_printf( "==== Reject add history, T_norm = %.2f, R_norm = %.2f ====\r\n", t_diff, r_diff );
+            // 否则不加入历史点云集合
         }
 
         screen_out << "m_pt_cell_map_corners.size() = " << m_pt_cell_map_corners.get_cells_size() << endl;
         screen_out << "m_pt_cell_map_planes.size() = " << m_pt_cell_map_planes.get_cells_size() << endl;
 
+        // 若图点云数目量较大 则pop出最早插入的点云
+        // 对于角点点云、平面点点云、完整点点云，均如此
         if ( m_laser_cloud_corner_history.size() > ( size_t ) m_maximum_history_size )
         {
             ( m_laser_cloud_corner_history.front() ).clear();
@@ -1498,6 +1514,7 @@ class Laser_mapping
             m_q_w_curr = pc_reg.m_q_w_curr;
             m_t_w_curr = pc_reg.m_t_w_curr;
             m_lastest_pc_reg_time = point_cloud_current_timestamp;
+            // 更新当前帧时间 位姿等
         }
         else
         {
@@ -1696,11 +1713,13 @@ class Laser_mapping
             //printf_line;
             while ( m_queue_avail_data.empty() )
             {
+                // 队列为空 
                 sleep( 0.0001 );
             }
             m_mutex_buf.lock();
             while ( m_queue_avail_data.size() >= ( unsigned int ) m_max_buffer_size )
             {
+                // 队列点云数量大于 buffer size, pop出数据
                 ROS_WARN( "Drop lidar frame in mapping for real time performance !!!" );
                 ( *m_logger_common.get_ostream() ) << "Drop lidar frame in mapping for real time performance !!!" << endl;
                 m_queue_avail_data.pop();
@@ -1709,13 +1728,16 @@ class Laser_mapping
             Data_pair *current_data_pair = m_queue_avail_data.front();
             m_queue_avail_data.pop();
             m_mutex_buf.unlock();
+            // 取出数据进行处理
 
             m_timer.tic( "Prepare to enter thread" );
 
             m_time_pc_corner_past = current_data_pair->m_pc_corner->header.stamp.toSec();
+            // 当前帧时间戳
 
             if ( first_time_stamp < 0 )
             {
+                // 第一帧激光雷达点云时间
                 first_time_stamp = m_time_pc_corner_past;
             }
 
@@ -1731,13 +1753,15 @@ class Laser_mapping
             m_laser_cloud_full_res->clear();
             pcl::fromROSMsg( *( current_data_pair->m_pc_full ), *m_laser_cloud_full_res );
             m_mutex_querypointcloud.unlock();
+            //保存m_laser_cloud_corner_last, m_laser_cloud_surf_last, m_laser_cloud_full_res 进行处理
 
             delete current_data_pair;
 
             Common_tools::maintain_maximum_thread_pool<std::future<int> *>( m_thread_pool, m_maximum_parallel_thread );
 
             std::future<int> *thd = new std::future<int>( std::async( std::launch::async, &Laser_mapping::process_new_scan, this ) );
-
+            // process_new_scan 线程加入线程池 处理当前帧点云
+             
             *( m_logger_timer.get_ostream() ) << m_timer.toc_string( "Prepare to enter thread" ) << std::endl;
             m_thread_pool.push_back( thd );
 
